@@ -1,0 +1,116 @@
+#!/bin/bash
+
+set -e  # 遇到错误立即退出
+
+PROJECT_DIR="my-abstract-project"
+
+# 1. 创建并进入项目目录
+mkdir -p "$PROJECT_DIR" && cd "$PROJECT_DIR"
+
+# 2. 初始化 Hardhat 项目
+echo "Initializing Hardhat project..."
+npx hardhat init --force
+
+# 3. 安装依赖
+echo "Installing dependencies..."
+npm install -D @matterlabs/hardhat-zksync zksync-ethers@6 ethers@6 @matterlabs/zksync-contracts dotenv
+
+# 4. 配置 Hardhat
+echo "Configuring Hardhat..."
+cat > hardhat.config.ts <<EOL
+import { HardhatUserConfig } from "hardhat/config";
+import "@matterlabs/hardhat-zksync";
+import * as dotenv from "dotenv";
+dotenv.config();
+
+const config: HardhatUserConfig = {
+  zksolc: {
+    version: "latest",
+    settings: {
+      enableEraVMExtensions: true,
+    },
+  },
+  defaultNetwork: "abstractMainnet",
+  networks: {
+    abstractMainnet: {
+      url: "https://api.mainnet.abs.xyz",
+      ethNetwork: "mainnet",
+      zksync: true,
+      chainId: 2741,
+    },
+  },
+  etherscan: {
+    apiKey: "IEYKU3EEM5XCD76N7Y7HF9HG7M9ARZ2H4A",
+    customChains: [
+      {
+        network: "abstractMainnet",
+        chainId: 2741,
+        urls: {
+          apiURL: "https://api.abscan.org/api",
+          browserURL: "https://abscan.org/",
+        },
+      },
+    ],
+  },
+  solidity: {
+    version: "0.8.24",
+  },
+};
+
+export default config;
+EOL
+
+# 5. 编写智能合约
+echo "Writing HelloAbstract.sol contract..."
+mkdir -p contracts
+cat > contracts/HelloAbstract.sol <<EOL
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+contract HelloAbstract {
+    function sayHello() public pure returns (string memory) {
+        return "Hello, World!";
+    }
+}
+EOL
+
+# 6. 编译合约
+echo "Compiling contract..."
+npx hardhat clean
+npx hardhat compile --network abstractMainnet
+
+# 7. 添加私钥
+echo "Creating .env file for private key..."
+cat > .env <<EOL
+DEPLOYER_PRIVATE_KEY=
+EOL
+echo "Please edit .env and add your private key."
+
+# 8. 创建部署脚本
+echo "Writing deployment script..."
+mkdir -p deploy
+cat > deploy/deploy.ts <<EOL
+import { Wallet } from "zksync-ethers";
+import { HardhatRuntimeEnvironment } from "hardhat/types";
+import { Deployer } from "@matterlabs/hardhat-zksync";
+import * as dotenv from "dotenv";
+dotenv.config();
+
+export default async function (hre: HardhatRuntimeEnvironment) {
+  console.log("Running deploy script");
+  if (!process.env.DEPLOYER_PRIVATE_KEY) {
+    throw new Error("DEPLOYER_PRIVATE_KEY is not set in .env file");
+  }
+  const wallet = new Wallet(process.env.DEPLOYER_PRIVATE_KEY);
+  const deployer = new Deployer(hre, wallet);
+  const artifact = await deployer.loadArtifact("HelloAbstract");
+  const contract = await deployer.deploy(artifact);
+  console.log(`\${artifact.contractName} deployed at \${await contract.getAddress()}`);
+}
+EOL
+
+# 9. 部署合约
+echo "Deploying contract..."
+npx hardhat deploy-zksync --script deploy/deploy.ts --network abstractMainnet
+
+echo "Deployment completed!"
